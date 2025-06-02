@@ -8,7 +8,7 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func SetupRoutes(foodHandler *handlers.FoodHandler, userHandler *handlers.UserHandler) http.Handler {
+func SetupRoutes(foodHandler *handlers.FoodHandler, userHandler *handlers.UserHandler, cartHandler *handlers.CartHandler) http.Handler {
 	r := mux.NewRouter()
 
 	// API prefix
@@ -19,7 +19,7 @@ func SetupRoutes(foodHandler *handlers.FoodHandler, userHandler *handlers.UserHa
 	api.HandleFunc("/foods", foodHandler.CreateFood).Methods("POST")
 	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.GetFoodByID).Methods("GET")
 	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.UpdateFood).Methods("PUT")
-	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.DeleteFood).Methods("DELETE") // DELETE uchun ham rasm o'chirilishi qo'shildi
+	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.DeleteFood).Methods("DELETE")
 	api.HandleFunc("/foods/category/{category}", foodHandler.GetFoodsByCategory).Methods("GET")
 	api.HandleFunc("/foods/stats", foodHandler.GetFoodStats).Methods("GET")
 
@@ -35,7 +35,6 @@ func SetupRoutes(foodHandler *handlers.FoodHandler, userHandler *handlers.UserHa
 	}).Methods("GET")
 
 	// Statik fayllarni (yuklangan rasmlarni) taqdim etish uchun marshrut
-	// /uploads/path/to/image.jpg kabi so'rovlarni ./uploads/path/to/image.jpg fayliga yo'naltiradi
 	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
 	// CORS middleware

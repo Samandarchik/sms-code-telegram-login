@@ -1,4 +1,3 @@
-// ==================== main.go ====================
 package main
 
 import (
@@ -37,9 +36,10 @@ func main() {
 	// Service'larni yaratish
 	userService := service.NewUserService(userRepo)
 	foodService := service.NewFoodService(foodRepo)
+	cardService := service.NewCardService(userRepo) // Yangi: CardService yaratildi
 
 	// Handler'larni yaratish
-	userHandler := handlers.NewUserHandler(userService)
+	userHandler := handlers.NewUserHandler(userService, cardService) // Yangi: CardService userHandlerga uzatildi
 	foodHandler := handlers.NewFoodHandler(foodService)
 
 	// Telegram botni sozlash
