@@ -1,12 +1,18 @@
-// ==================== handlers/food_handler.go ====================
 package handlers
 
 import (
 	"amur/models"
 	"amur/service"
 	"encoding/json"
+	"fmt"
+	"io"
+	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -17,6 +23,28 @@ type FoodHandler struct {
 
 func NewFoodHandler(foodService *service.FoodService) *FoodHandler {
 	return &FoodHandler{foodService: foodService}
+}
+
+// sendErrorResponse yordamchi funksiyasi xato javobini yuborish uchun
+func (h *FoodHandler) sendErrorResponse(w http.ResponseWriter, statusCode int, message, details string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":   message,
+		"details": details,
+	})
+	log.Printf("Xato javobi yuborildi: Status=%d, Xabar='%s', Tafsilotlar='%s'", statusCode, message, details)
+}
+
+// sendSuccessResponse yordamchi funksiyasi muvaffaqiyatli javobni yuborish uchun
+func (h *FoodHandler) sendSuccessResponse(w http.ResponseWriter, message string, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": message,
+		"data":    data,
+	})
+	log.Printf("Muvaffaqiyatli javob yuborildi: Xabar='%s'", message)
 }
 
 // GET /api/foods - Barcha ovqatlarni olish
@@ -48,21 +76,114 @@ func (h *FoodHandler) GetFoodByID(w http.ResponseWriter, r *http.Request) {
 	h.sendSuccessResponse(w, "Ovqat muvaffaqiyatli topildi", food)
 }
 
-// POST /api/foods - Yangi ovqat qo'shish
+// POST /api/foods - Yangi ovqat qo'shish (Form-data va rasm yuklashni qo'llab-quvvatlaydi)
 func (h *FoodHandler) CreateFood(w http.ResponseWriter, r *http.Request) {
-	var req models.CreateFoodRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "JSON formatida xatolik", err.Error())
+	log.Println("CreateFood so'rovi qabul qilindi.")
+
+	// Multipart form ma'lumotlarini tahlil qilish. 10MB maksimal fayl hajmi.
+	err := r.ParseMultipartForm(10 << 20) // 10 MB
+	if err != nil {
+		h.sendErrorResponse(w, http.StatusBadRequest, "Form ma'lumotlarini tahlil qilishda xatolik", err.Error())
+		return
+	}
+	log.Println("Form ma'lumotlari muvaffaqiyatli tahlil qilindi.")
+
+	// Formdan maydonlarni olish
+	foodName := r.FormValue("food_name")
+	foodCategory := r.FormValue("food_category")
+	foodPriceStr := r.FormValue("food_price")
+
+	log.Printf("Form qiymatlari: FoodName='%s', FoodCategory='%s', FoodPriceStr='%s'", foodName, foodCategory, foodPriceStr)
+
+	// Majburiy maydonlarni tekshirish
+	if foodName == "" || foodCategory == "" || foodPriceStr == "" {
+		h.sendErrorResponse(w, http.StatusBadRequest, "Majburiy maydonlar to'ldirilmagan", "food_name, food_category, food_price maydonlari majburiy.")
 		return
 	}
 
+	// Narxni float64 turiga o'tkazish
+	foodPrice, err := strconv.ParseFloat(foodPriceStr, 64)
+	if err != nil || foodPrice <= 0 {
+		h.sendErrorResponse(w, http.StatusBadRequest, "Narx noto'g'ri formatda", "food_price musbat son bo'lishi kerak.")
+		return
+	}
+
+	var foodImageURL string
+	// "food_image" nomli form maydonidan yuklangan faylni olish
+	file, handler, err := r.FormFile("food_image")
+	if err == nil { // Fayl yuklangan bo'lsa
+		defer file.Close() // Faylni yopishni unutmang
+		log.Printf("Rasm fayli topildi: %s, Hajmi: %d bytes", handler.Filename, handler.Size)
+
+		// Yuklangan fayllar uchun papka yaratish (agar mavjud bo'lmasa)
+		uploadDir := "./uploads"
+		if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
+			log.Printf("'%s' papkasi topilmadi, yaratilmoqda...", uploadDir)
+			err = os.Mkdir(uploadDir, 0755) // 0755 ruxsatlari bilan papka yaratish
+			if err != nil {
+				h.sendErrorResponse(w, http.StatusInternalServerError, "Yuklash papkasini yaratishda xatolik", err.Error())
+				return
+			}
+			log.Printf("'%s' papkasi muvaffaqiyatli yaratildi.", uploadDir)
+		} else if err != nil {
+			h.sendErrorResponse(w, http.StatusInternalServerError, "Yuklash papkasi holatini tekshirishda xatolik", err.Error())
+			return
+		}
+
+		// Fayl uchun noyob nom yaratish (vaqt tamg'asi + asl kengaytma)
+		ext := filepath.Ext(handler.Filename)
+		newFileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+		filePath := filepath.Join(uploadDir, newFileName)
+		log.Printf("Fayl saqlash yo'li: %s", filePath)
+
+		// Faylni serverga saqlash
+		dst, err := os.Create(filePath)
+		if err != nil {
+			h.sendErrorResponse(w, http.StatusInternalServerError, "Faylni saqlashda xatolik", err.Error())
+			return
+		}
+		defer dst.Close() // Yaratilgan faylni yopishni unutmang
+		log.Println("Bo'sh fayl yaratildi.")
+
+		// Yuklangan fayl kontentini yangi faylga nusxalash
+		bytesCopied, err := io.Copy(dst, file)
+		if err != nil {
+			h.sendErrorResponse(w, http.StatusInternalServerError, "Faylni nusxalashda xatolik", err.Error())
+			return
+		}
+		log.Printf("Faylga %d bayt nusxalandi.", bytesCopied)
+
+		// Rasmni URL sifatida saqlash (masalan, /uploads/image.jpg)
+		foodImageURL = "/uploads/" + newFileName
+		log.Printf("Rasm URL manzili: %s", foodImageURL)
+
+	} else if err == http.ErrMissingFile {
+		log.Println("Rasm fayli yuklanmadi (ixtiyoriy).")
+		// Rasm ixtiyoriy bo'lsa, bu xatolik emas. foodImageURL bo'sh qoladi.
+	} else {
+		// Boshqa turdagi xatoliklar (fayl mavjud emasligi bundan mustasno)
+		h.sendErrorResponse(w, http.StatusBadRequest, "Rasm yuklashda kutilmagan xatolik", err.Error())
+		return
+	}
+
+	// models.CreateFoodRequest obyektini yaratish
+	req := models.CreateFoodRequest{
+		FoodName:     foodName,
+		FoodCategory: foodCategory,
+		FoodPrice:    foodPrice,
+		FoodImage:    foodImageURL, // Yuklangan rasmni URL/pathini qo'shish
+	}
+
+	// Xizmat orqali ovqatni yaratish
 	food, err := h.foodService.CreateFood(&req)
 	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Ovqat qo'shishda xatolik", err.Error())
+		h.sendErrorResponse(w, http.StatusInternalServerError, "Ovqat qo'shishda xizmat xatoligi", err.Error())
 		return
 	}
 
+	// Muvaffaqiyatli javobni yuborish
 	h.sendSuccessResponse(w, "Ovqat muvaffaqiyatli qo'shildi", food)
+	log.Println("Ovqat yaratish jarayoni yakunlandi.")
 }
 
 // PUT /api/foods/{id} - Ovqatni yangilash
@@ -74,9 +195,71 @@ func (h *FoodHandler) UpdateFood(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PUT so'rovlari uchun ham rasm yangilanishi mumkin, shuning uchun multipart formni tahlil qilishimiz kerak.
+	// Agar rasm yangilanmasa, oddiy JSON ham kelishi mumkin.
+	// Eng yaxshi yechim - PUT uchun ham form-data ishlatish yoki ikkita alohida endpoint yaratish.
+	// Hozircha, agar form-data bo'lmasa, JSONni tahlil qilishga harakat qilamiz.
+
+	// Content-Type ni tekshirish
+	contentType := r.Header.Get("Content-Type")
 	var req models.UpdateFoodRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "JSON formatida xatolik", err.Error())
+
+	if strings.Contains(contentType, "multipart/form-data") {
+		err := r.ParseMultipartForm(10 << 20) // 10 MB
+		if err != nil {
+			h.sendErrorResponse(w, http.StatusBadRequest, "Form ma'lumotlarini tahlil qilishda xatolik", err.Error())
+			return
+		}
+
+		req.FoodName = r.FormValue("food_name")
+		req.FoodCategory = r.FormValue("food_category")
+		if priceStr := r.FormValue("food_price"); priceStr != "" {
+			req.FoodPrice, err = strconv.ParseFloat(priceStr, 64)
+			if err != nil {
+				h.sendErrorResponse(w, http.StatusBadRequest, "Narx noto'g'ri formatda", err.Error())
+				return
+			}
+		}
+
+		var foodImageURL string
+		file, handler, err := r.FormFile("food_image")
+		if err == nil { // Fayl yuklangan bo'lsa
+			defer file.Close()
+
+			uploadDir := "./uploads"
+			if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
+				os.Mkdir(uploadDir, 0755)
+			}
+
+			ext := filepath.Ext(handler.Filename)
+			newFileName := fmt.Sprintf("%d%s", time.Now().UnixNano(), ext)
+			filePath := filepath.Join(uploadDir, newFileName)
+
+			dst, err := os.Create(filePath)
+			if err != nil {
+				h.sendErrorResponse(w, http.StatusInternalServerError, "Faylni saqlashda xatolik", err.Error())
+				return
+			}
+			defer dst.Close()
+
+			if _, err := io.Copy(dst, file); err != nil {
+				h.sendErrorResponse(w, http.StatusInternalServerError, "Faylni nusxalashda xatolik", err.Error())
+				return
+			}
+			foodImageURL = "/uploads/" + newFileName
+		} else if err != http.ErrMissingFile {
+			h.sendErrorResponse(w, http.StatusBadRequest, "Rasm yuklashda kutilmagan xatolik", err.Error())
+			return
+		}
+		req.FoodImage = foodImageURL
+
+	} else if strings.Contains(contentType, "application/json") {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			h.sendErrorResponse(w, http.StatusBadRequest, "JSON formatida xatolik", err.Error())
+			return
+		}
+	} else {
+		h.sendErrorResponse(w, http.StatusUnsupportedMediaType, "Qo'llab-quvvatlanmaydigan Content-Type", "application/json yoki multipart/form-data kutilmoqda.")
 		return
 	}
 
@@ -98,14 +281,38 @@ func (h *FoodHandler) DeleteFood(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ovqatni o'chirishdan oldin uning rasm yo'lini olish va faylni o'chirish
+	foodToDelete, err := h.foodService.GetFoodByID(id)
+	if err != nil {
+		h.sendErrorResponse(w, http.StatusNotFound, "O'chiriladigan ovqat topilmadi", err.Error())
+		return
+	}
+
 	err = h.foodService.DeleteFood(id)
 	if err != nil {
 		h.sendErrorResponse(w, http.StatusBadRequest, "Ovqatni o'chirishda xatolik", err.Error())
 		return
 	}
 
+	// Agar rasm mavjud bo'lsa, uni fayl tizimidan o'chirish
+	if foodToDelete.FoodImage != "" {
+		imagePath := "." + foodToDelete.FoodImage // Misol: "./uploads/image.jpg"
+		if _, err := os.Stat(imagePath); err == nil {
+			err := os.Remove(imagePath)
+			if err != nil {
+				log.Printf("Rasm faylini o'chirishda xatolik: %s - %v", imagePath, err)
+			} else {
+				log.Printf("Rasm fayli muvaffaqiyatli o'chirildi: %s", imagePath)
+			}
+		} else if !os.IsNotExist(err) {
+			log.Printf("Rasm fayli holatini tekshirishda xatolik: %s - %v", imagePath, err)
+		}
+	}
+
 	h.sendSuccessResponse(w, "Ovqat muvaffaqiyatli o'chirildi", nil)
 }
+
+// GET /api/foods/category/{category} - Kategoriya bo'yicha ovqatlarni olish
 func (h *FoodHandler) GetFoodsByCategory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	category := vars["category"]
@@ -127,31 +334,4 @@ func (h *FoodHandler) GetFoodStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sendSuccessResponse(w, "Statistika muvaffaqiyatli olindi", stats)
-}
-
-// Helper functions
-func (h *FoodHandler) sendSuccessResponse(w http.ResponseWriter, message string, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	response := models.APIResponse{
-		Success: true,
-		Message: message,
-		Data:    data,
-	}
-
-	json.NewEncoder(w).Encode(response)
-}
-
-func (h *FoodHandler) sendErrorResponse(w http.ResponseWriter, statusCode int, message string, error string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-
-	response := models.APIResponse{
-		Success: false,
-		Message: message,
-		Error:   error,
-	}
-
-	json.NewEncoder(w).Encode(response)
 }

@@ -1,4 +1,3 @@
-// ==================== repository/food_repository.go ====================
 package repository
 
 import (
@@ -82,10 +81,10 @@ func (r *FoodRepository) GetByID(id int) (*models.Food, error) {
 
 func (r *FoodRepository) Update(id int, food *models.Food) error {
 	stmt, err := r.db.Prepare(`
-        UPDATE foods SET 
-            food_name = ?, 
-            food_category = ?, 
-            food_price = ?, 
+        UPDATE foods SET
+            food_name = ?,
+            food_category = ?,
+            food_price = ?,
             food_image = ?,
             updated_at = CURRENT_TIMESTAMP
         WHERE food_id = ?

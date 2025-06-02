@@ -13,19 +13,20 @@ type Config struct {
 }
 
 func LoadConfig() *Config {
-	botToken := os.Getenv("BOT_TOKEN")
+	botToken := os.Getenv("7609705273:AAFX60_khniloe_ExejY4VRJdxEmeP4aloQ")
 	if botToken == "" {
-		log.Fatal("BOT_TOKEN environment variable is required")
+		botToken = "7609705273:AAFX60_khniloe_ExejY4VRJdxEmeP4aloQ" // Default token
+		log.Println("⚠️  BOT_TOKEN environment variable not set, using default")
 	}
 
-	databasePath := os.Getenv("DATABASE_PATH")
+	databasePath := os.Getenv("DB_PATH")
 	if databasePath == "" {
-		databasePath = "./bot.db"
+		databasePath = "./user.db"
 	}
 
 	serverPort := os.Getenv("SERVER_PORT")
 	if serverPort == "" {
-		serverPort = "8080"
+		serverPort = "8081"
 	}
 
 	return &Config{

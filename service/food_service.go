@@ -1,4 +1,3 @@
-// ==================== service/food_service.go ====================
 package service
 
 import (
@@ -25,7 +24,7 @@ func (s *FoodService) CreateFood(req *models.CreateFoodRequest) (*models.Food, e
 		FoodName:     strings.TrimSpace(req.FoodName),
 		FoodCategory: strings.TrimSpace(req.FoodCategory),
 		FoodPrice:    req.FoodPrice,
-		FoodImage:    strings.TrimSpace(req.FoodImage),
+		FoodImage:    strings.TrimSpace(req.FoodImage), // Rasm URL manzilini qabul qiladi
 	}
 
 	err := s.foodRepo.Create(food)
@@ -52,13 +51,11 @@ func (s *FoodService) UpdateFood(id int, req *models.UpdateFoodRequest) (*models
 		return nil, fmt.Errorf("noto'g'ri food ID")
 	}
 
-	// Mavjud ovqatni olish
 	existingFood, err := s.foodRepo.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("ovqat topilmadi")
 	}
 
-	// Yangi ma'lumotlarni tayyorlash
 	updatedFood := &models.Food{
 		FoodID:       existingFood.FoodID,
 		FoodName:     existingFood.FoodName,
@@ -67,7 +64,6 @@ func (s *FoodService) UpdateFood(id int, req *models.UpdateFoodRequest) (*models
 		FoodImage:    existingFood.FoodImage,
 	}
 
-	// Faqat berilgan maydonlarni yangilash
 	if req.FoodName != "" {
 		updatedFood.FoodName = strings.TrimSpace(req.FoodName)
 	}
@@ -77,7 +73,7 @@ func (s *FoodService) UpdateFood(id int, req *models.UpdateFoodRequest) (*models
 	if req.FoodPrice > 0 {
 		updatedFood.FoodPrice = req.FoodPrice
 	}
-	if req.FoodImage != "" {
+	if req.FoodImage != "" { // Agar yangi rasm URL manzili kelsa
 		updatedFood.FoodImage = strings.TrimSpace(req.FoodImage)
 	}
 
@@ -94,7 +90,6 @@ func (s *FoodService) DeleteFood(id int) error {
 		return fmt.Errorf("noto'g'ri food ID")
 	}
 
-	// Ovqat mavjudligini tekshirish
 	_, err := s.foodRepo.GetByID(id)
 	if err != nil {
 		return fmt.Errorf("ovqat topilmadi")
