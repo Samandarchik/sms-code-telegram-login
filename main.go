@@ -1,160 +1,128 @@
+// ==================== main.go ====================
 package main
 
 import (
-	"database/sql"
-	"fmt"
+	"amur/config"
+	"amur/database"
+	"amur/handlers"
+	"amur/repository"
+	"amur/routes"
+	"amur/service"
+	"context"
 	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "github.com/mattn/go-sqlite3"
 )
 
-// User modeli
-type User struct {
-	TgID         int64
-	FirstName    string
-	Username     string
-	LanguageCode string
-	PhoneNumber  string
-}
-
 func main() {
-	botToken := "7609705273:AAFX60_khniloe_ExejY4VRJdxEmeP4aloQ" // ❗ Bot tokeningizni shu yerga yozing
-	bot, err := tgbotapi.NewBotAPI(botToken)
-	if err != nil {
-		log.Panic(err)
-	}
+	// Konfiguratsiyani yuklash
+	cfg := config.LoadConfig()
 
-	// SQLite bazaga ulanish
-	db, err := sql.Open("sqlite3", "./user.db")
+	// Ma'lumotlar bazasini sozlash
+	db, err := database.NewDatabase(cfg.DatabasePath)
 	if err != nil {
-		log.Fatal("DB ulanishda xato:", err)
+		log.Fatalf("Ma'lumotlar bazasini ochishda xatolik: %v", err)
 	}
 	defer db.Close()
 
-	createTable(db)
+	// Repository'larni yaratish
+	userRepo := repository.NewUserRepository(db.GetDB())
+	foodRepo := repository.NewFoodRepository(db.GetDB())
 
-	log.Printf("🤖 Bot %s ishga tushdi", bot.Self.UserName)
+	// Service'larni yaratish
+	userService := service.NewUserService(userRepo)
+	foodService := service.NewFoodService(foodRepo)
+
+	// Handler'larni yaratish
+	userHandler := handlers.NewUserHandler(userService)
+	foodHandler := handlers.NewFoodHandler(foodService)
+
+	// Telegram botni sozlash
+	bot, err := tgbotapi.NewBotAPI(cfg.BotToken)
+	if err != nil {
+		log.Fatalf("Botni yaratishda xatolik: %v", err)
+	}
+
 	bot.Debug = false
+	log.Printf("🤖 Bot @%s sifatida ishga tushdi", bot.Self.UserName)
 
+	botHandler := handlers.NewBotHandler(bot, userService)
+
+	// HTTP serverni sozlash
+	router := routes.SetupRoutes(foodHandler, userHandler)
+	server := &http.Server{
+		Addr:    ":" + cfg.ServerPort,
+		Handler: router,
+	}
+
+	// Goroutine'da HTTP serverni ishga tushirish
+	go func() {
+		log.Printf("🌐 HTTP server %s portda ishga tushdi", cfg.ServerPort)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("HTTP server xatoligi: %v", err)
+		}
+	}()
+
+	// Telegram bot update'larini olish
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 
 	updates := bot.GetUpdatesChan(u)
 
-	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
+	// Graceful shutdown uchun
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-		chatID := update.Message.Chat.ID
+	// Asosiy loop
+	go func() {
+		for update := range updates {
+			if update.Message != nil {
+				chatID := update.Message.Chat.ID
 
-		// Telefon raqami kelganda
-		if update.Message.Contact != nil {
-			contact := update.Message.Contact
-			user := User{
-				TgID:         contact.UserID,
-				FirstName:    update.Message.From.FirstName,
-				Username:     update.Message.From.UserName,
-				LanguageCode: update.Message.From.LanguageCode,
-				PhoneNumber:  contact.PhoneNumber,
-			}
-			if !userExists(db, user.TgID) {
-				saveUser(db, user)
+				switch {
+				case update.Message.IsCommand():
+					switch update.Message.Command() {
+					case "start":
+						botHandler.HandleStart(chatID)
+					case "stats":
+						botHandler.HandleStats(chatID)
+					default:
+						msg := tgbotapi.NewMessage(chatID, "❓ Noma'lum buyruq. /start bosing.")
+						bot.Send(msg)
+					}
 
-				// Telegram ID dan oxirgi 4 raqamni olish
-				tgIDStr := fmt.Sprintf("%d", user.TgID)
-				code := "0000"
-				if len(tgIDStr) >= 4 {
-					code = tgIDStr[len(tgIDStr)-4:]
+				case update.Message.Contact != nil:
+					botHandler.HandleContact(update)
+
+				default:
+					msg := tgbotapi.NewMessage(chatID, "📱 Iltimos, telefon raqamingizni yuboring yoki /start bosing.")
+					bot.Send(msg)
 				}
-
-				msg := tgbotapi.NewMessage(chatID,
-					fmt.Sprintf("✅ Raqamingiz saqlandi!\nSizning code:\n```%s```", code))
-				msg.ParseMode = "Markdown"
-				bot.Send(msg)
-
-			} else {
-				// Foydalanuvchi mavjud bo‘lsa — yana code ni yuborish
-				tgIDStr := fmt.Sprintf("%d", user.TgID)
-				code := "0000"
-				if len(tgIDStr) >= 4 {
-					code = tgIDStr[len(tgIDStr)-4:]
-				}
-
-				msg := tgbotapi.NewMessage(chatID,
-					fmt.Sprintf("ℹ️ Siz allaqachon ro‘yxatdan o‘tgansiz.\nSizning code:\n```%s```", code))
-				msg.ParseMode = "Markdown"
-				bot.Send(msg)
 			}
-
-			continue
 		}
+	}()
 
-		// /start buyrug‘i
-		if update.Message.IsCommand() && update.Message.Command() == "start" {
-			msg := tgbotapi.NewMessage(chatID, "👋 Salom! Iltimos, telefon raqamingizni yuboring:")
-			button := tgbotapi.NewKeyboardButtonContact("📱 Telefon raqamni yuborish")
-			keyboard := tgbotapi.NewReplyKeyboard(
-				tgbotapi.NewKeyboardButtonRow(button),
-			)
-			keyboard.OneTimeKeyboard = true
-			keyboard.ResizeKeyboard = true
-			msg.ReplyMarkup = keyboard
-			bot.Send(msg)
-		}
-	}
-}
+	log.Println("✅ Bot va API server ishga tushdi. To'xtatish uchun Ctrl+C bosing.")
 
-// Jadval yaratish
-func createTable(db *sql.DB) {
-	query := `
-	CREATE TABLE IF NOT EXISTS users (
-		userid INTEGER PRIMARY KEY AUTOINCREMENT,
-		tg_id INTEGER UNIQUE,
-		first_name TEXT,
-		username TEXT,
-		language_code TEXT,
-		phone TEXT
-	);`
-	_, err := db.Exec(query)
-	if err != nil {
-		log.Fatal("Jadval yaratishda xatolik:", err)
-	}
-}
+	// Graceful shutdown
+	<-quit
+	log.Println("🛑 Server to'xtatilmoqda...")
 
-// Foydalanuvchini bazaga saqlash
-func saveUser(db *sql.DB, user User) {
-	stmt, err := db.Prepare(`
-	INSERT INTO users(tg_id, first_name, username, language_code, phone)
-	VALUES (?, ?, ?, ?, ?)
-	`)
-	if err != nil {
-		log.Println("Saqlashda xatolik (prepare):", err)
-		return
-	}
-	_, err = stmt.Exec(user.TgID, user.FirstName, user.Username, user.LanguageCode, user.PhoneNumber)
-	if err != nil {
-		log.Println("Saqlashda xatolik (exec):", err)
-	}
-}
+	// HTTP serverni to'xtatish
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-// Foydalanuvchi mavjudligini tekshirish
-func userExists(db *sql.DB, tgID int64) bool {
-	row := db.QueryRow("SELECT tg_id FROM users WHERE tg_id = ?", tgID)
-	var id int64
-	err := row.Scan(&id)
-	return err == nil
-}
-
-// Foydalanuvchilar sonini olish
-func getUserCount(db *sql.DB) int {
-	row := db.QueryRow("SELECT COUNT(*) FROM users")
-	var count int
-	err := row.Scan(&count)
-	if err != nil {
-		log.Println("COUNT olishda xatolik:", err)
-		return 0
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("HTTP server to'xtatishda xatolik: %v", err)
 	}
-	return count
+
+	// Botni to'xtatish
+	bot.StopReceivingUpdates()
+
+	log.Println("✅ Server muvaffaqiyatli to'xtatildi.")
 }
