@@ -1,4 +1,3 @@
-// main.go
 package main
 
 import (
@@ -9,6 +8,8 @@ import (
 	"amur/routes"
 	"amur/service"
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -17,19 +18,58 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	_ "github.com/lib/pq"
 )
 
+// Bazani yaratish funksiyasi
+func createDatabaseIfNotExists(cfg *config.Config) {
+	// Baza yaratish uchun ulanish: bazani ko'rsatmaymiz, chunki u hali mavjud emas
+	connStr := fmt.Sprintf(
+		"user=%s password=%s host=%s port=%s sslmode=disable",
+		cfg.DatabaseUser, cfg.DatabasePassword, cfg.DatabaseHost, cfg.DatabasePort,
+	)
+
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatalf("PostgreSQL ga ulanib bo'lmadi: %v", err)
+	}
+	defer db.Close()
+
+	// Bazani yaratish buyruqi
+	_, err = db.Exec(fmt.Sprintf("CREATE DATABASE %s", cfg.DatabaseName))
+	if err != nil {
+		// Agar xato "already exists" bo'lsa e'tiborsiz qoldiramiz
+		if !isDatabaseExistsError(err, cfg.DatabaseName) {
+			log.Fatalf("Bazani yaratishda xatolik: %v", err)
+		} else {
+			log.Printf("Baza %s allaqachon mavjud", cfg.DatabaseName)
+		}
+	} else {
+		log.Printf("Baza %s muvaffaqiyatli yaratildi", cfg.DatabaseName)
+	}
+}
+
+func isDatabaseExistsError(err error, dbName string) bool {
+	// PostgreSQL bazasi allaqachon mavjudligi xatosini tekshiradi
+	return err != nil && (err.Error() == fmt.Sprintf("pq: database \"%s\" already exists", dbName))
+}
+
 func main() {
-	// Konfiguratsiyani yuklash
 	cfg := config.LoadConfig()
 
-	// PostgreSQL ma'lumotlar bazasini sozlash
-	connStr := "host=" + cfg.DatabaseHost +
-		" port=" + cfg.DatabasePort +
-		" user=" + cfg.DatabaseUser +
-		" password=" + cfg.DatabasePassword +
-		" dbname=" + cfg.DatabaseName +
-		" sslmode=disable"
+	// Bazani yaratamiz (agar mavjud bo'lmasa)
+	createDatabaseIfNotExists(cfg)
+
+	// Bazasiga ulanish uchun satrni tayyorlaymiz
+	connStr := fmt.Sprintf(
+		"user=%s password=%s dbname=%s host=%s port=%s sslmode=disable",
+		cfg.DatabaseUser,
+		cfg.DatabasePassword,
+		cfg.DatabaseName,
+		cfg.DatabaseHost,
+		cfg.DatabasePort,
+	)
+
 	db, err := database.NewDatabase(connStr)
 	if err != nil {
 		log.Fatalf("PostgreSQL ma'lumotlar bazasiga ulanishda xatolik: %v", err)

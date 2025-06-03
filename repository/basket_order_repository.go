@@ -22,7 +22,7 @@ func (r *BasketOrderRepository) AddToBasket(telegramID int64, foodID int) (*mode
 	err := r.db.QueryRow(`
         SELECT basket_order_id, telegram_id, food_id, quantity, created_at, updated_at
         FROM basket_orders
-        WHERE telegram_id = ? AND food_id = ?
+        WHERE telegram_id = $1 AND food_id = $2
     `, telegramID, foodID).Scan(
 		&existingOrder.BasketOrderID,
 		&existingOrder.TelegramID,
@@ -36,7 +36,8 @@ func (r *BasketOrderRepository) AddToBasket(telegramID int64, foodID int) (*mode
 		// Agar mavjud bo'lmasa, yangi yozuv yaratamiz
 		stmt, err := r.db.Prepare(`
             INSERT INTO basket_orders(telegram_id, food_id, quantity)
-            VALUES (?, ?, 1)
+            VALUES ($1, $2, 1)
+            RETURNING basket_order_id
         `)
 		if err != nil {
 			log.Printf("BasketOrder AddToBasket (insert) prepare xatolik: %v", err)
@@ -44,15 +45,15 @@ func (r *BasketOrderRepository) AddToBasket(telegramID int64, foodID int) (*mode
 		}
 		defer stmt.Close()
 
-		result, err := stmt.Exec(telegramID, foodID)
+		var newID int
+		err = stmt.QueryRow(telegramID, foodID).Scan(&newID)
 		if err != nil {
 			log.Printf("BasketOrder AddToBasket (insert) exec xatolik: %v", err)
 			return nil, err
 		}
 
-		id, _ := result.LastInsertId()
 		newOrder := &models.BasketOrder{
-			BasketOrderID: int(id),
+			BasketOrderID: newID,
 			TelegramID:    telegramID,
 			FoodID:        foodID,
 			Quantity:      1,
@@ -70,7 +71,7 @@ func (r *BasketOrderRepository) AddToBasket(telegramID int64, foodID int) (*mode
 	stmt, err := r.db.Prepare(`
         UPDATE basket_orders
         SET quantity = quantity + 1, updated_at = CURRENT_TIMESTAMP
-        WHERE basket_order_id = ?
+        WHERE basket_order_id = $1
     `)
 	if err != nil {
 		log.Printf("BasketOrder AddToBasket (update) prepare xatolik: %v", err)
@@ -95,7 +96,7 @@ func (r *BasketOrderRepository) GetBasketOrdersByTelegramID(telegramID int64) ([
 	rows, err := r.db.Query(`
         SELECT basket_order_id, telegram_id, food_id, quantity, created_at, updated_at
         FROM basket_orders
-        WHERE telegram_id = ?
+        WHERE telegram_id = $1
         ORDER BY created_at DESC
     `, telegramID)
 	if err != nil {
@@ -120,7 +121,7 @@ func (r *BasketOrderRepository) GetBasketOrdersByTelegramID(telegramID int64) ([
 
 // RemoveFromBasket savatchadan mahsulotni olib tashlaydi
 func (r *BasketOrderRepository) RemoveFromBasket(telegramID int64, foodID int) error {
-	stmt, err := r.db.Prepare("DELETE FROM basket_orders WHERE telegram_id = ? AND food_id = ?")
+	stmt, err := r.db.Prepare("DELETE FROM basket_orders WHERE telegram_id = $1 AND food_id = $2")
 	if err != nil {
 		log.Printf("BasketOrder RemoveFromBasket prepare xatolik: %v", err)
 		return err
@@ -144,7 +145,7 @@ func (r *BasketOrderRepository) RemoveFromBasket(telegramID int64, foodID int) e
 
 // ClearBasket berilgan Telegram ID bo'yicha savatchani tozalaydi
 func (r *BasketOrderRepository) ClearBasket(telegramID int64) error {
-	stmt, err := r.db.Prepare("DELETE FROM basket_orders WHERE telegram_id = ?")
+	stmt, err := r.db.Prepare("DELETE FROM basket_orders WHERE telegram_id = $1")
 	if err != nil {
 		log.Printf("BasketOrder ClearBasket prepare xatolik: %v", err)
 		return err

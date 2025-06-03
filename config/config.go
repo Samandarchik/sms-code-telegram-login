@@ -1,4 +1,3 @@
-// config/config.go
 package config
 
 import (
@@ -21,14 +20,14 @@ type Config struct {
 // LoadConfig environment variable'lardan konfiguratsiyani yuklaydi
 func LoadConfig() *Config {
 	return &Config{
-		BotToken:   getEnv("7609705273:AAGfEPZ2GYmd8ICgVjXXHGlwXiZWD3nYhP8", ""),
+		BotToken:   getEnv("BOT_TOKEN", "7609705273:AAGfEPZ2GYmd8ICgVjXXHGlwXiZWD3nYhP8"),
 		ServerPort: getEnv("SERVER_PORT", "8080"),
 
 		// PostgreSQL sozlamalari
 		DatabaseHost:     getEnv("DB_HOST", "localhost"),
 		DatabasePort:     getEnv("DB_PORT", "5432"),
 		DatabaseUser:     getEnv("DB_USER", "postgres"),
-		DatabasePassword: getEnv("DB_PASSWORD", ""),
+		DatabasePassword: getEnv("DB_PASSWORD", "1234"),
 		DatabaseName:     getEnv("DB_NAME", "amur_db"),
 	}
 }

@@ -18,7 +18,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 func (r *UserRepository) Create(user *models.User) error {
 	stmt, err := r.db.Prepare(`
         INSERT INTO users(telegram_id, first_name, username, language_code, phone)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5)
     `)
 	if err != nil {
 		log.Printf("Create prepare xatolik: %v", err)
@@ -39,12 +39,12 @@ func (r *UserRepository) Create(user *models.User) error {
 func (r *UserRepository) Update(user *models.User) error {
 	stmt, err := r.db.Prepare(`
         UPDATE users SET 
-            first_name = ?, 
-            username = ?, 
-            language_code = ?, 
-            phone = ?,
+            first_name = $1, 
+            username = $2, 
+            language_code = $3, 
+            phone = $4,
             updated_at = CURRENT_TIMESTAMP
-        WHERE telegram_id = ?
+        WHERE telegram_id = $5
     `)
 	if err != nil {
 		log.Printf("Update prepare xatolik: %v", err)
@@ -65,7 +65,7 @@ func (r *UserRepository) Update(user *models.User) error {
 func (r *UserRepository) GetByTgID(tgID int64) (*models.User, error) {
 	row := r.db.QueryRow(`
         SELECT userid, telegram_id, first_name, username, language_code, phone, created_at, updated_at
-        FROM users WHERE telegram_id = ?
+        FROM users WHERE telegram_id = $1
     `, tgID)
 
 	var user models.User
@@ -79,7 +79,7 @@ func (r *UserRepository) GetByTgID(tgID int64) (*models.User, error) {
 }
 
 func (r *UserRepository) Exists(tgID int64) bool {
-	row := r.db.QueryRow("SELECT telegram_id FROM users WHERE telegram_id = ?", tgID)
+	row := r.db.QueryRow("SELECT telegram_id FROM users WHERE telegram_id = $1", tgID)
 	var id int64
 	err := row.Scan(&id)
 	return err == nil

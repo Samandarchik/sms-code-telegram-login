@@ -16,8 +16,9 @@ func NewFoodRepository(db *sql.DB) *FoodRepository {
 
 func (r *FoodRepository) Create(food *models.Food) error {
 	stmt, err := r.db.Prepare(`
-        INSERT INTO foods(food_name, food_category, food_price, food_image)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO foods (food_name, food_category, food_price, food_image)
+        VALUES ($1, $2, $3, $4)
+        RETURNING food_id
     `)
 	if err != nil {
 		log.Printf("Food Create prepare xatolik: %v", err)
@@ -25,14 +26,11 @@ func (r *FoodRepository) Create(food *models.Food) error {
 	}
 	defer stmt.Close()
 
-	result, err := stmt.Exec(food.FoodName, food.FoodCategory, food.FoodPrice, food.FoodImage)
+	err = stmt.QueryRow(food.FoodName, food.FoodCategory, food.FoodPrice, food.FoodImage).Scan(&food.FoodID)
 	if err != nil {
 		log.Printf("Food Create exec xatolik: %v", err)
 		return err
 	}
-
-	id, _ := result.LastInsertId()
-	food.FoodID = int(id)
 
 	log.Printf("✅ Yangi ovqat qo'shildi: %s (ID: %d)", food.FoodName, food.FoodID)
 	return nil
@@ -66,7 +64,7 @@ func (r *FoodRepository) GetAll() ([]*models.Food, error) {
 func (r *FoodRepository) GetByID(id int) (*models.Food, error) {
 	row := r.db.QueryRow(`
         SELECT food_id, food_name, food_category, food_price, food_image, created_at, updated_at
-        FROM foods WHERE food_id = ?
+        FROM foods WHERE food_id = $1
     `, id)
 
 	var food models.Food
@@ -82,12 +80,12 @@ func (r *FoodRepository) GetByID(id int) (*models.Food, error) {
 func (r *FoodRepository) Update(id int, food *models.Food) error {
 	stmt, err := r.db.Prepare(`
         UPDATE foods SET
-            food_name = ?,
-            food_category = ?,
-            food_price = ?,
-            food_image = ?,
+            food_name = $1,
+            food_category = $2,
+            food_price = $3,
+            food_image = $4,
             updated_at = CURRENT_TIMESTAMP
-        WHERE food_id = ?
+        WHERE food_id = $5
     `)
 	if err != nil {
 		log.Printf("Food Update prepare xatolik: %v", err)
@@ -106,7 +104,7 @@ func (r *FoodRepository) Update(id int, food *models.Food) error {
 }
 
 func (r *FoodRepository) Delete(id int) error {
-	stmt, err := r.db.Prepare("DELETE FROM foods WHERE food_id = ?")
+	stmt, err := r.db.Prepare("DELETE FROM foods WHERE food_id = $1")
 	if err != nil {
 		log.Printf("Food Delete prepare xatolik: %v", err)
 		return err
@@ -126,7 +124,7 @@ func (r *FoodRepository) Delete(id int) error {
 func (r *FoodRepository) GetByCategory(category string) ([]*models.Food, error) {
 	rows, err := r.db.Query(`
         SELECT food_id, food_name, food_category, food_price, food_image, created_at, updated_at
-        FROM foods WHERE food_category = ? ORDER BY created_at DESC
+        FROM foods WHERE food_category = $1 ORDER BY created_at DESC
     `, category)
 	if err != nil {
 		return nil, err

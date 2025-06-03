@@ -20,7 +20,8 @@ func NewOrderRepository(db *sql.DB) *OrderRepository {
 func (r *OrderRepository) CreateOrder(order *models.Order) (*models.Order, error) {
 	stmt, err := r.db.Prepare(`
         INSERT INTO orders(telegram_id, order_time, order_status, delivery_type, total_price, delivery_latitude, delivery_longitude, comment)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING order_id
     `)
 	if err != nil {
 		log.Printf("Order CreateOrder prepare xatolik: %v", err)
@@ -28,7 +29,7 @@ func (r *OrderRepository) CreateOrder(order *models.Order) (*models.Order, error
 	}
 	defer stmt.Close()
 
-	result, err := stmt.Exec(
+	err = stmt.QueryRow(
 		order.TelegramID,
 		order.OrderTime,
 		order.OrderStatus,
@@ -37,14 +38,12 @@ func (r *OrderRepository) CreateOrder(order *models.Order) (*models.Order, error
 		order.DeliveryLatitude,
 		order.DeliveryLongitude,
 		order.Comment,
-	)
+	).Scan(&order.OrderID)
 	if err != nil {
 		log.Printf("Order CreateOrder exec xatolik: %v", err)
 		return nil, err
 	}
 
-	id, _ := result.LastInsertId()
-	order.OrderID = int(id)
 	// Set timestamps in Go since they're not in DB
 	order.CreatedAt = time.Now()
 	order.UpdatedAt = time.Now()
@@ -57,7 +56,7 @@ func (r *OrderRepository) CreateOrder(order *models.Order) (*models.Order, error
 func (r *OrderRepository) AddOrderItem(item *models.OrderItem) error {
 	stmt, err := r.db.Prepare(`
         INSERT INTO order_items(order_id, food_id, quantity, item_price)
-        VALUES (?, ?, ?, ?)
+        VALUES ($1, $2, $3, $4)
     `)
 	if err != nil {
 		log.Printf("Order AddOrderItem prepare xatolik: %v", err)
@@ -80,7 +79,7 @@ func (r *OrderRepository) GetOrderWithItemsByID(orderID int) (*models.Order, []*
 	err := r.db.QueryRow(`
         SELECT order_id, telegram_id, order_time, order_status, delivery_type, total_price, delivery_latitude, delivery_longitude, comment
         FROM orders
-        WHERE order_id = ?
+        WHERE order_id = $1
     `, orderID).Scan(
 		&order.OrderID,
 		&order.TelegramID,
@@ -107,7 +106,7 @@ func (r *OrderRepository) GetOrderWithItemsByID(orderID int) (*models.Order, []*
 	rows, err := r.db.Query(`
         SELECT order_item_id, order_id, food_id, quantity, item_price
         FROM order_items
-        WHERE order_id = ?
+        WHERE order_id = $1
     `, orderID)
 	if err != nil {
 		log.Printf("Order GetOrderWithItemsByID (items) xatolik: %v", err)
@@ -142,8 +141,8 @@ func (r *OrderRepository) GetOrderWithItemsByID(orderID int) (*models.Order, []*
 func (r *OrderRepository) UpdateOrderStatus(orderID int, status string) error {
 	stmt, err := r.db.Prepare(`
         UPDATE orders
-        SET order_status = ?
-        WHERE order_id = ?
+        SET order_status = $1
+        WHERE order_id = $2
     `)
 	if err != nil {
 		log.Printf("Order UpdateOrderStatus prepare xatolik: %v", err)
@@ -169,7 +168,7 @@ func (r *OrderRepository) GetUserOrders(telegramID int64) ([]*models.Order, erro
 	rows, err := r.db.Query(`
         SELECT order_id, telegram_id, order_time, order_status, delivery_type, total_price, delivery_latitude, delivery_longitude, comment
         FROM orders
-        WHERE telegram_id = ?
+        WHERE telegram_id = $1
         ORDER BY order_time DESC
     `, telegramID)
 	if err != nil {
@@ -217,7 +216,7 @@ func (r *OrderRepository) GetOrderStats() (int, error) {
 
 // DeleteOrder buyurtmani ID bo'yicha o'chiradi (FAQAT ADMIN UCHUN)
 func (r *OrderRepository) DeleteOrder(orderID int) error {
-	stmt, err := r.db.Prepare("DELETE FROM orders WHERE order_id = ?")
+	stmt, err := r.db.Prepare("DELETE FROM orders WHERE order_id = $1")
 	if err != nil {
 		log.Printf("Order DeleteOrder prepare xatolik: %v", err)
 		return err
