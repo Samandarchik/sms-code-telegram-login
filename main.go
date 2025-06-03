@@ -23,32 +23,37 @@ func main() {
 	// Konfiguratsiyani yuklash
 	cfg := config.LoadConfig()
 
-	// Ma'lumotlar bazasini sozlash
-	db, err := database.NewDatabase(cfg.DatabasePath)
+	// PostgreSQL ma'lumotlar bazasini sozlash
+	connStr := "host=" + cfg.DatabaseHost +
+		" port=" + cfg.DatabasePort +
+		" user=" + cfg.DatabaseUser +
+		" password=" + cfg.DatabasePassword +
+		" dbname=" + cfg.DatabaseName +
+		" sslmode=disable"
+	db, err := database.NewDatabase(connStr)
 	if err != nil {
-		log.Fatalf("Ma'lumotlar bazasini ochishda xatolik: %v", err)
+		log.Fatalf("PostgreSQL ma'lumotlar bazasiga ulanishda xatolik: %v", err)
 	}
 	defer db.Close()
-	log.Println("✅ Ma'lumotlar bazasiga muvaffaqiyatli ulanildi.")
+	log.Println("✅ PostgreSQL ma'lumotlarlar bazasiga muvaffaqiyatli ulanildi.")
 
 	// Repository'larni yaratish
 	userRepo := repository.NewUserRepository(db.GetDB())
 	foodRepo := repository.NewFoodRepository(db.GetDB())
 	basketOrderRepo := repository.NewBasketOrderRepository(db.GetDB())
-	orderRepo := repository.NewOrderRepository(db.GetDB()) // YANGI: OrderRepository
+	orderRepo := repository.NewOrderRepository(db.GetDB())
 
 	// Service'larni yaratish
 	userService := service.NewUserService(userRepo)
 	foodService := service.NewFoodService(foodRepo)
 	basketOrderService := service.NewBasketOrderService(basketOrderRepo, foodRepo)
-	// YANGI: OrderService (orderRepo, basketOrderRepo va foodRepo'ga bog'liq)
 	orderService := service.NewOrderService(orderRepo, basketOrderRepo, foodRepo)
 
 	// Handler'larni yaratish
 	userHandler := handlers.NewUserHandler(userService)
 	foodHandler := handlers.NewFoodHandler(foodService)
 	basketOrderHandler := handlers.NewBasketOrderHandler(basketOrderService)
-	orderHandler := handlers.NewOrderHandler(orderService) // YANGI: OrderHandler
+	orderHandler := handlers.NewOrderHandler(orderService)
 
 	// Telegram botni sozlash
 	bot, err := tgbotapi.NewBotAPI(cfg.BotToken)
@@ -62,14 +67,13 @@ func main() {
 	botHandler := handlers.NewBotHandler(bot, userService)
 
 	// HTTP serverni sozlash
-	// YANGI: SetupRoutes ga barcha handler'larni uzatamiz
 	router := routes.SetupRoutes(foodHandler, userHandler, basketOrderHandler, orderHandler)
 	server := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
 		Handler:      router,
-		ReadTimeout:  15 * time.Second, // So'rovni o'qish uchun maksimal vaqt
-		WriteTimeout: 15 * time.Second, // Javobni yozish uchun maksimal vaqt
-		IdleTimeout:  60 * time.Second, // Ulanishni yopiq holatda saqlash uchun maksimal vaqt
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// Goroutine'da HTTP serverni ishga tushirish
@@ -122,7 +126,7 @@ func main() {
 	log.Println("✅ Bot va API server ishga tushdi. To'xtatish uchun Ctrl+C bosing.")
 
 	// Graceful shutdown
-	<-quit // Server to'xtatilishini kutish
+	<-quit
 	log.Println("🛑 Server to'xtatilmoqda...")
 
 	// HTTP serverni to'xtatish
