@@ -21,7 +21,7 @@ func LoadConfig() *Config {
 
 	databasePath := os.Getenv("DB_PATH")
 	if databasePath == "" {
-		databasePath = "./user.db"
+		databasePath = "./amur_restaurant.db"
 	}
 
 	serverPort := os.Getenv("SERVER_PORT")

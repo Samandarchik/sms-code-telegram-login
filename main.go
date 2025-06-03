@@ -1,3 +1,4 @@
+// main.go
 package main
 
 import (
@@ -28,19 +29,26 @@ func main() {
 		log.Fatalf("Ma'lumotlar bazasini ochishda xatolik: %v", err)
 	}
 	defer db.Close()
+	log.Println("✅ Ma'lumotlar bazasiga muvaffaqiyatli ulanildi.")
 
 	// Repository'larni yaratish
 	userRepo := repository.NewUserRepository(db.GetDB())
 	foodRepo := repository.NewFoodRepository(db.GetDB())
+	basketOrderRepo := repository.NewBasketOrderRepository(db.GetDB())
+	orderRepo := repository.NewOrderRepository(db.GetDB()) // YANGI: OrderRepository
 
 	// Service'larni yaratish
 	userService := service.NewUserService(userRepo)
 	foodService := service.NewFoodService(foodRepo)
-	cardService := service.NewCardService(userRepo) // Yangi: CardService yaratildi
+	basketOrderService := service.NewBasketOrderService(basketOrderRepo, foodRepo)
+	// YANGI: OrderService (orderRepo, basketOrderRepo va foodRepo'ga bog'liq)
+	orderService := service.NewOrderService(orderRepo, basketOrderRepo, foodRepo)
 
 	// Handler'larni yaratish
-	userHandler := handlers.NewUserHandler(userService, cardService) // Yangi: CardService userHandlerga uzatildi
+	userHandler := handlers.NewUserHandler(userService)
 	foodHandler := handlers.NewFoodHandler(foodService)
+	basketOrderHandler := handlers.NewBasketOrderHandler(basketOrderService)
+	orderHandler := handlers.NewOrderHandler(orderService) // YANGI: OrderHandler
 
 	// Telegram botni sozlash
 	bot, err := tgbotapi.NewBotAPI(cfg.BotToken)
@@ -54,10 +62,14 @@ func main() {
 	botHandler := handlers.NewBotHandler(bot, userService)
 
 	// HTTP serverni sozlash
-	router := routes.SetupRoutes(foodHandler, userHandler)
+	// YANGI: SetupRoutes ga barcha handler'larni uzatamiz
+	router := routes.SetupRoutes(foodHandler, userHandler, basketOrderHandler, orderHandler)
 	server := &http.Server{
-		Addr:    ":" + cfg.ServerPort,
-		Handler: router,
+		Addr:         ":" + cfg.ServerPort,
+		Handler:      router,
+		ReadTimeout:  15 * time.Second, // So'rovni o'qish uchun maksimal vaqt
+		WriteTimeout: 15 * time.Second, // Javobni yozish uchun maksimal vaqt
+		IdleTimeout:  60 * time.Second, // Ulanishni yopiq holatda saqlash uchun maksimal vaqt
 	}
 
 	// Goroutine'da HTTP serverni ishga tushirish
@@ -78,7 +90,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	// Asosiy loop
+	// Asosiy loop (Telegram bot update'larini qayta ishlash)
 	go func() {
 		for update := range updates {
 			if update.Message != nil {
@@ -110,7 +122,7 @@ func main() {
 	log.Println("✅ Bot va API server ishga tushdi. To'xtatish uchun Ctrl+C bosing.")
 
 	// Graceful shutdown
-	<-quit
+	<-quit // Server to'xtatilishini kutish
 	log.Println("🛑 Server to'xtatilmoqda...")
 
 	// HTTP serverni to'xtatish

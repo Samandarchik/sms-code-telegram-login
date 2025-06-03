@@ -17,7 +17,7 @@ func NewUserRepository(db *sql.DB) *UserRepository {
 
 func (r *UserRepository) Create(user *models.User) error {
 	stmt, err := r.db.Prepare(`
-        INSERT INTO users(tg_id, first_name, username, language_code, phone)
+        INSERT INTO users(telegram_id, first_name, username, language_code, phone)
         VALUES (?, ?, ?, ?, ?)
     `)
 	if err != nil {
@@ -26,13 +26,13 @@ func (r *UserRepository) Create(user *models.User) error {
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(user.TgID, user.FirstName, user.Username, user.LanguageCode, user.PhoneNumber)
+	_, err = stmt.Exec(user.TelegramID, user.FirstName, user.Username, user.LanguageCode, user.PhoneNumber)
 	if err != nil {
 		log.Printf("Create exec xatolik: %v", err)
 		return err
 	}
 
-	log.Printf("✅ Yangi foydalanuvchi saqlandi: %s (ID: %d)", user.FirstName, user.TgID)
+	log.Printf("✅ Yangi foydalanuvchi saqlandi: %s (ID: %d)", user.FirstName, user.TelegramID)
 	return nil
 }
 
@@ -44,7 +44,7 @@ func (r *UserRepository) Update(user *models.User) error {
             language_code = ?, 
             phone = ?,
             updated_at = CURRENT_TIMESTAMP
-        WHERE tg_id = ?
+        WHERE telegram_id = ?
     `)
 	if err != nil {
 		log.Printf("Update prepare xatolik: %v", err)
@@ -52,24 +52,24 @@ func (r *UserRepository) Update(user *models.User) error {
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(user.FirstName, user.Username, user.LanguageCode, user.PhoneNumber, user.TgID)
+	_, err = stmt.Exec(user.FirstName, user.Username, user.LanguageCode, user.PhoneNumber, user.TelegramID)
 	if err != nil {
 		log.Printf("Update exec xatolik: %v", err)
 		return err
 	}
 
-	log.Printf("🔄 Foydalanuvchi yangilandi: %s (ID: %d)", user.FirstName, user.TgID)
+	log.Printf("🔄 Foydalanuvchi yangilandi: %s (ID: %d)", user.FirstName, user.TelegramID)
 	return nil
 }
 
 func (r *UserRepository) GetByTgID(tgID int64) (*models.User, error) {
 	row := r.db.QueryRow(`
-        SELECT userid, tg_id, first_name, username, language_code, phone, created_at, updated_at
-        FROM users WHERE tg_id = ?
+        SELECT userid, telegram_id, first_name, username, language_code, phone, created_at, updated_at
+        FROM users WHERE telegram_id = ?
     `, tgID)
 
 	var user models.User
-	err := row.Scan(&user.UserID, &user.TgID, &user.FirstName, &user.Username,
+	err := row.Scan(&user.UserID, &user.TelegramID, &user.FirstName, &user.Username,
 		&user.LanguageCode, &user.PhoneNumber, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (r *UserRepository) GetByTgID(tgID int64) (*models.User, error) {
 }
 
 func (r *UserRepository) Exists(tgID int64) bool {
-	row := r.db.QueryRow("SELECT tg_id FROM users WHERE tg_id = ?", tgID)
+	row := r.db.QueryRow("SELECT telegram_id FROM users WHERE telegram_id = ?", tgID)
 	var id int64
 	err := row.Scan(&id)
 	return err == nil
@@ -98,7 +98,7 @@ func (r *UserRepository) Count() int {
 
 func (r *UserRepository) GetAll() ([]*models.User, error) {
 	rows, err := r.db.Query(`
-        SELECT userid, tg_id, first_name, username, language_code, phone, created_at, updated_at
+        SELECT userid, telegram_id, first_name, username, language_code, phone, created_at, updated_at
         FROM users ORDER BY created_at DESC
     `)
 	if err != nil {
@@ -109,7 +109,7 @@ func (r *UserRepository) GetAll() ([]*models.User, error) {
 	var users []*models.User
 	for rows.Next() {
 		var user models.User
-		err := rows.Scan(&user.UserID, &user.TgID, &user.FirstName, &user.Username,
+		err := rows.Scan(&user.UserID, &user.TelegramID, &user.FirstName, &user.Username,
 			&user.LanguageCode, &user.PhoneNumber, &user.CreatedAt, &user.UpdatedAt)
 		if err != nil {
 			log.Printf("GetAll scan xatolik: %v", err)

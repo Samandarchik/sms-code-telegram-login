@@ -18,7 +18,7 @@ func NewUserService(userRepo *repository.UserRepository) *UserService {
 func (s *UserService) CreateUser(user *models.User) error {
 	s.validateAndCleanUser(user)
 
-	if s.userRepo.Exists(user.TgID) {
+	if s.userRepo.Exists(user.TelegramID) {
 		return fmt.Errorf("foydalanuvchi allaqachon mavjud")
 	}
 
@@ -47,7 +47,7 @@ func (s *UserService) GetAllUsers() ([]*models.User, error) {
 }
 
 func (s *UserService) SaveOrUpdateUser(user *models.User) error {
-	if s.UserExists(user.TgID) {
+	if s.UserExists(user.TelegramID) {
 		return s.UpdateUser(user)
 	}
 	return s.CreateUser(user)

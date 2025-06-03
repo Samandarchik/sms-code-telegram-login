@@ -48,11 +48,11 @@ func (h *BotHandler) HandleContact(update tgbotapi.Update) {
 		return
 	}
 
-	code := h.userService.GenerateUserCode(user.TgID)
+	code := h.userService.GenerateUserCode(user.TelegramID)
 	userCount := h.userService.GetUserCount()
 
 	var messageText string
-	if h.userService.UserExists(user.TgID) {
+	if h.userService.UserExists(user.TelegramID) {
 		messageText = fmt.Sprintf("ℹ️ Ma'lumotlaringiz yangilandi.\nSizning code:\n```%s```", code)
 	} else {
 		messageText = fmt.Sprintf("✅ Raqamingiz saqlandi!\nSizning code:\n```%s```\n\n📊 Jami foydalanuvchilar: %d",
@@ -105,7 +105,7 @@ func (h *BotHandler) extractUserFromContact(update tgbotapi.Update) *models.User
 	}
 
 	return &models.User{
-		TgID:         userID,
+		TelegramID:   userID,
 		FirstName:    firstName,
 		Username:     username,
 		LanguageCode: languageCode,
