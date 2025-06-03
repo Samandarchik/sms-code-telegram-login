@@ -1,7 +1,7 @@
-// handlers/basket_order_handler.go
 package handlers
 
 import (
+	"amur/middleware" // Yangi middleware paketini import qilish
 	"amur/models"
 	"amur/service"
 	"encoding/json"
@@ -42,15 +42,26 @@ func (h *BasketOrderHandler) sendSuccessResponse(w http.ResponseWriter, message 
 	log.Printf("Muvaffaqiyatli javob yuborildi: Xabar='%s'", message)
 }
 
+// getTelegramIDFromContext yordamchi funksiya
+func (h *BasketOrderHandler) getTelegramIDFromContext(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	// OLD: userID, ok := r.Context().Value(middleware.UserContextKey).(int)
+	// YANGI: Contextdan Telegram IDni to'g'ridan-to'g'ri int64 sifatida olish
+	telegramID, ok := r.Context().Value(middleware.TelegramIDContextKey).(int64) // <--- Shu qatorni o'zgartiring!
+	if !ok {
+		h.sendErrorResponse(w, http.StatusInternalServerError, "Foydalanuvchi Telegram IDsi kontekstda topilmadi", "Autentifikatsiya xatoligi. AuthMiddleware to'g'ri ishlamagan bo'lishi mumkin.")
+		return 0, false
+	}
+	// Endi int dan int64 ga o'girish shart emas, chunki biz to'g'ridan-to'g'ri int64 sifatida olyapmiz
+	// telegramID := int64(userID) // Bu qator endi kerak emas
+	return telegramID, true
+}
+
 // AddToBasket savatchaga mahsulot qo'shish
-// POST /api/{telegramID}/basket-order
+// POST /api/basket-order (telegramID endi URLda emas)
 func (h *BasketOrderHandler) AddToBasket(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	telegramIDStr := vars["telegramID"]
-	telegramID, err := strconv.ParseInt(telegramIDStr, 10, 64)
-	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Noto'g'ri Telegram ID", err.Error())
-		return
+	telegramID, ok := h.getTelegramIDFromContext(w, r)
+	if !ok {
+		return // Xato javobi getTelegramIDFromContext ichida yuborilgan
 	}
 
 	var req models.AddToBasketRequest
@@ -74,13 +85,10 @@ func (h *BasketOrderHandler) AddToBasket(w http.ResponseWriter, r *http.Request)
 }
 
 // GetBasketOrders savatchadagi barcha mahsulotlarni olish
-// GET /api/{telegramID}/basket-order
+// GET /api/basket-order
 func (h *BasketOrderHandler) GetBasketOrders(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	telegramIDStr := vars["telegramID"]
-	telegramID, err := strconv.ParseInt(telegramIDStr, 10, 64)
-	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Noto'g'ri Telegram ID", err.Error())
+	telegramID, ok := h.getTelegramIDFromContext(w, r)
+	if !ok {
 		return
 	}
 
@@ -94,16 +102,14 @@ func (h *BasketOrderHandler) GetBasketOrders(w http.ResponseWriter, r *http.Requ
 }
 
 // RemoveFromBasket savatchadan mahsulotni o'chirish
-// DELETE /api/{telegramID}/basket-order/{foodID}
+// DELETE /api/basket-order/{foodID} (telegramID endi URLda emas)
 func (h *BasketOrderHandler) RemoveFromBasket(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	telegramIDStr := vars["telegramID"]
-	telegramID, err := strconv.ParseInt(telegramIDStr, 10, 64)
-	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Noto'g'ri Telegram ID", err.Error())
+	telegramID, ok := h.getTelegramIDFromContext(w, r)
+	if !ok {
 		return
 	}
 
+	vars := mux.Vars(r)
 	foodIDStr := vars["foodID"]
 	foodID, err := strconv.Atoi(foodIDStr)
 	if err != nil {
@@ -121,17 +127,14 @@ func (h *BasketOrderHandler) RemoveFromBasket(w http.ResponseWriter, r *http.Req
 }
 
 // ClearBasket savatchani tozalash
-// DELETE /api/{telegramID}/basket-order
+// DELETE /api/basket-order
 func (h *BasketOrderHandler) ClearBasket(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	telegramIDStr := vars["telegramID"]
-	telegramID, err := strconv.ParseInt(telegramIDStr, 10, 64)
-	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Noto'g'ri Telegram ID", err.Error())
+	telegramID, ok := h.getTelegramIDFromContext(w, r)
+	if !ok {
 		return
 	}
 
-	err = h.basketService.ClearBasket(telegramID)
+	err := h.basketService.ClearBasket(telegramID)
 	if err != nil {
 		h.sendErrorResponse(w, http.StatusInternalServerError, "Savatchani tozalashda xatolik", err.Error())
 		return

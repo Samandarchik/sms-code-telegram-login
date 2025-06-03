@@ -1,7 +1,7 @@
-// handlers/order_handler.go
 package handlers
 
 import (
+	"amur/middleware" // Yangi middleware paketini import qilish
 	"amur/models"
 	"amur/service"
 	"database/sql"
@@ -43,14 +43,29 @@ func (h *OrderHandler) sendSuccessResponse(w http.ResponseWriter, message string
 	// log.Printf("Muvaffaqiyatli javob yuborildi: Xabar='%s'", message)
 }
 
+// getTelegramIDFromContext yordamchi funksiya
+func (h *OrderHandler) getTelegramIDFromContext(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	// OLD: userID, ok := r.Context().Value(middleware.UserContextKey).(int)
+	// YANGI: Contextdan Telegram IDni to'g'ridan-to'g'ri int64 sifatida olish
+	telegramID, ok := r.Context().Value(middleware.TelegramIDContextKey).(int64) // <-- Shu qatorni o'zgartiring!
+	if !ok {
+		h.sendErrorResponse(w, http.StatusInternalServerError, "Foydalanuvchi Telegram IDsi kontekstda topilmadi", "Autentifikatsiya xatoligi. AuthMiddleware to'g'ri ishlamagan bo'lishi mumkin.")
+		return 0, false
+	}
+	// Agar oldingi kodda userID ni int dan int64 ga o'girish shart bo'lgan bo'lsa,
+	// endi biz to'g'ridan-to'g'ri int64 qabul qilganimiz uchun bu qator endi kerak emas:
+	// telegramID := int64(userID)
+	return telegramID, true
+}
+
+// Qolgan funksiyalar (CreateOrder, GetOrderDetails, GetUserOrders, UpdateOrderStatus, GetOrderStats, DeleteOrderAdmin) o'zgarishsiz qoladi.
+// Chunki ularda faqat getTelegramIDFromContext chaqiriladi va qaytarilgan telegramID ishlatiladi.
+
 // CreateOrder savatchadagi mahsulotlardan buyurtma yaratish
-// POST /api/{telegramID}/orders
+// POST /api/orders (telegramID endi URLda emas)
 func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	telegramIDStr := vars["telegramID"]
-	telegramID, err := strconv.ParseInt(telegramIDStr, 10, 64)
-	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Noto'g'ri Telegram ID", err.Error())
+	telegramID, ok := h.getTelegramIDFromContext(w, r)
+	if !ok {
 		return
 	}
 
@@ -69,7 +84,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderDetails, err := h.orderService.CreateOrder(telegramID, &req)
+	order, err := h.orderService.CreateOrder(telegramID, &req) // 'order' deb o'zgartirdim, avvalgi kodda 'orderDetails' edi.
 	if err != nil {
 		if errors.Is(err, errors.New("savatcha bo'sh, buyurtma berish mumkin emas")) {
 			h.sendErrorResponse(w, http.StatusBadRequest, "Buyurtma yaratishda xatolik", err.Error())
@@ -81,10 +96,10 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.sendSuccessResponse(w, "Buyurtma muvaffaqiyatli yaratildi", orderDetails)
+	h.sendSuccessResponse(w, "Buyurtma muvaffaqiyatli yaratildi", order)
 }
 
-// GetOrderDetails buyurtma ma'lumotlarini (elementlari bilan birga) olish (unchanged)
+// GetOrderDetails buyurtma ma'lumotlarini (elementlari bilan birga) olish
 // GET /api/orders/{orderID}
 func (h *OrderHandler) GetOrderDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -108,14 +123,11 @@ func (h *OrderHandler) GetOrderDetails(w http.ResponseWriter, r *http.Request) {
 	h.sendSuccessResponse(w, "Buyurtma ma'lumotlari muvaffaqiyatli olindi", orderDetails)
 }
 
-// GetUserOrders foydalanuvchining barcha buyurtmalarini (elementlari bilan birga) olish (unchanged)
-// GET /api/{telegramID}/orders
+// GetUserOrders foydalanuvchining barcha buyurtmalarini (elementlari bilan birga) olish
+// GET /api/orders (telegramID endi URLda emas)
 func (h *OrderHandler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	telegramIDStr := vars["telegramID"]
-	telegramID, err := strconv.ParseInt(telegramIDStr, 10, 64)
-	if err != nil {
-		h.sendErrorResponse(w, http.StatusBadRequest, "Noto'g'ri Telegram ID", err.Error())
+	telegramID, ok := h.getTelegramIDFromContext(w, r)
+	if !ok {
 		return
 	}
 
@@ -128,9 +140,10 @@ func (h *OrderHandler) GetUserOrders(w http.ResponseWriter, r *http.Request) {
 	h.sendSuccessResponse(w, "Foydalanuvchi buyurtmalari muvaffaqiyatli olindi", allOrderDetails)
 }
 
-// UpdateOrderStatus buyurtma holatini yangilash (unchanged)
+// UpdateOrderStatus buyurtma holatini yangilash (Faqat admin uchun bo'lishi kerak)
 // PUT /api/orders/{orderID}/status
 func (h *OrderHandler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request) {
+	// Bu yerda ham admin roli tekshirilishi kerak.
 	vars := mux.Vars(r)
 	orderIDStr := vars["orderID"]
 	orderID, err := strconv.Atoi(orderIDStr)
@@ -164,9 +177,10 @@ func (h *OrderHandler) UpdateOrderStatus(w http.ResponseWriter, r *http.Request)
 	h.sendSuccessResponse(w, "Buyurtma holati muvaffaqiyatli yangilandi", nil)
 }
 
-// GetOrderStats buyurtma statistikasini olish (unchanged)
+// GetOrderStats buyurtma statistikasini olish (Faqat admin uchun)
 // GET /api/orders/stats
 func (h *OrderHandler) GetOrderStats(w http.ResponseWriter, r *http.Request) {
+	// Bu yerda ham admin roli tekshirilishi kerak.
 	count, err := h.orderService.GetOrderStats()
 	if err != nil {
 		h.sendErrorResponse(w, http.StatusInternalServerError, "Buyurtma statistikasini olishda xatolik", err.Error())
@@ -179,10 +193,8 @@ func (h *OrderHandler) GetOrderStats(w http.ResponseWriter, r *http.Request) {
 // DeleteOrderAdmin buyurtmani o'chirish (FAQAT ADMIN UCHUN)
 // DELETE /api/admin/orders/{orderID}
 func (h *OrderHandler) DeleteOrderAdmin(w http.ResponseWriter, r *http.Request) {
-	// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-	// BU YERDA ADMIN AUTENTIFIKATSIYA VA AVTORIZATSIYA LOGIKASI BO'LISHI KERAK.
-	// HOZIRDA BU FUNKSIYA HAR QANDAY FOYDALANUVCHI UCHUN ISHLAYDI.
-	// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+	// Bu funksiya uchun avtorizatsiya AuthMiddleware va RoleMiddleware orqali amalga oshiriladi.
+	// Handler ichida qayta tekshirish shart emas, chunki agar middleware ishlamagan bo'lsa, bu yerga yetib kelmaydi.
 
 	vars := mux.Vars(r)
 	orderIDStr := vars["orderID"]

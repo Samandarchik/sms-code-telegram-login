@@ -47,6 +47,8 @@ func (d *Database) createTables() error {
 		username TEXT NOT NULL DEFAULT 'N/A',
 		language_code TEXT NOT NULL DEFAULT 'uz',
 		phone TEXT,
+		password_hash TEXT, -- Yangi: Parol hash
+		role TEXT NOT NULL DEFAULT 'user', -- Yangi: Foydalanuvchi roli (user, admin)
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);`
