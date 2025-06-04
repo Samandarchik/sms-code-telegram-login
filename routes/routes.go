@@ -2,6 +2,7 @@ package routes
 
 import (
 	"amur/handlers"
+	"amur/pkg/jwt_auth" // jwt_auth paketini import qilamiz
 	"net/http"
 
 	gorillaHandlers "github.com/gorilla/handlers"
@@ -15,63 +16,69 @@ func SetupRoutes(foodHandler *handlers.FoodHandler, userHandler *handlers.UserHa
 	// API prefix
 	api := r.PathPrefix("/api").Subrouter()
 
-	// --- Yangi User auth routes ---
+	// --- Public (autentifikatsiya talab qilinmaydigan) marshrutlar ---
+	// Bu endpointlarga har kim token bo'lmasa ham murojaat qila oladi.
 	api.HandleFunc("/register", userHandler.RegisterUser).Methods("POST") // Ro'yxatdan o'tish
 	api.HandleFunc("/login", userHandler.Login).Methods("POST")           // Tizimga kirish
 
-	// Food routes (unchanged)
-	api.HandleFunc("/foods", foodHandler.GetAllFoods).Methods("GET")
-	api.HandleFunc("/foods", foodHandler.CreateFood).Methods("POST")
-	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.GetFoodByID).Methods("GET")
-	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.UpdateFood).Methods("PUT")
-	api.HandleFunc("/foods/{id:[0-9]+}", foodHandler.DeleteFood).Methods("DELETE")
-	api.HandleFunc("/foods/category/{category}", foodHandler.GetFoodsByCategory).Methods("GET")
-	api.HandleFunc("/foods/stats", foodHandler.GetFoodStats).Methods("GET")
-
-	// User routes (unchanged, lekin "register" va "login"ni qo'shdik)
-	api.HandleFunc("/users", userHandler.GetAllUsers).Methods("GET")        // Bunga AuthMiddleware va RoleMiddleware kerak bo'ladi!
-	api.HandleFunc("/users/stats", userHandler.GetUserStats).Methods("GET") // Bunga AuthMiddleware va RoleMiddleware kerak bo'ladi!
-
-	// Basket Order Routes (unchanged)
-	// Eslatma: Hozirgi holatda telegramID URLda, lekin middlewaredan olish yaxshiroq
-	// api.HandleFunc("/{telegramID:[0-9]+}/basket-order", basketOrderHandler.AddToBasket).Methods("POST")
-	// api.HandleFunc("/{telegramID:[0-9]+}/basket-order", basketOrderHandler.GetBasketOrders).Methods("GET")
-	// api.HandleFunc("/{telegramID:[0-9]+}/basket-order/{foodID:[0-9]+}", basketOrderHandler.RemoveFromBasket).Methods("DELETE")
-	// api.HandleFunc("/{telegramID:[0-9]+}/basket-order", basketOrderHandler.ClearBasket).Methods("DELETE")
-	// Endi middlewaredan telegramID olish uchun marshrutlarni yangilashimiz kerak:
-	api.HandleFunc("/basket-order", basketOrderHandler.AddToBasket).Methods("POST")
-	api.HandleFunc("/basket-order", basketOrderHandler.GetBasketOrders).Methods("GET")
-	api.HandleFunc("/basket-order/{foodID:[0-9]+}", basketOrderHandler.RemoveFromBasket).Methods("DELETE")
-	api.HandleFunc("/basket-order", basketOrderHandler.ClearBasket).Methods("DELETE")
-
-	// Order Routes (unchanged, faqat order_handler.go o'zgaradi)
-	// Eslatma: Hozirgi holatda telegramID URLda, lekin middlewaredan olish yaxshiroq
-	// api.HandleFunc("/{telegramID:[0-9]+}/orders", orderHandler.CreateOrder).Methods("POST")
-	// api.HandleFunc("/{telegramID:[0-9]+}/orders", orderHandler.GetUserOrders).Methods("GET")
-	// Endi middlewaredan telegramID olish uchun marshrutlarni yangilashimiz kerak:
-	api.HandleFunc("/orders", orderHandler.CreateOrder).Methods("POST")
-	api.HandleFunc("/orders", orderHandler.GetUserOrders).Methods("GET")
-
-	api.HandleFunc("/orders/{orderID:[0-9]+}", orderHandler.GetOrderDetails).Methods("GET")
-	api.HandleFunc("/orders/{orderID:[0-9]+}/status", orderHandler.UpdateOrderStatus).Methods("PUT") // Admin roli bilan himoyalash kerak
-	api.HandleFunc("/orders/stats", orderHandler.GetOrderStats).Methods("GET")                       // Admin roli bilan himoyalash kerak
-
-	// Admin-only routes (unchanged, faqat order_handler.go o'zgaradi)
-	api.HandleFunc("/admin/orders/{orderID:[0-9]+}", orderHandler.DeleteOrderAdmin).Methods("DELETE") // Admin roli bilan himoyalash kerak
-
-	// Health check (unchanged)
+	// Health check (server holatini tekshirish uchun)
 	api.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "OK", "message": "Server is running"}`))
+		w.Write([]byte(`{"status": "OK", "message": "Server ishga tushdi."}`))
 	}).Methods("GET")
 
-	// Statik fayllarni (yuklangan rasmlarni) taqdim etish uchun marshrut (unchanged)
+	// Statik fayllarni (yuklangan rasmlarni) taqdim etish uchun marshrut
+	// Bunga ham autentifikatsiya kerak emas, chunki bu ommaviy kontent.
 	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
-	// CORS middleware (unchanged)
+	// --- Autentifikatsiya talab qilinadigan marshrutlar uchun Subrouter ---
+	// Bu subrouterga 'AuthMiddleware' qo'llaniladi.
+	// Barcha marshrutlar ushbu subrouter orqali o'tadi va token tekshiriladi.
+	authRequired := api.PathPrefix("/").Subrouter()
+	authRequired.Use(jwt_auth.AuthMiddleware) // Bu yerda AuthMiddleware qo'llaniladi
+
+	// --- AuthMiddleware orqali himoyalangan marshrutlar ---
+
+	// Food routes
+	// Bular endi himoyalangan. Faqat to'g'ri JWT tokeni bilan kirish mumkin.
+	authRequired.HandleFunc("/foods", foodHandler.GetAllFoods).Methods("GET")
+	authRequired.HandleFunc("/foods", foodHandler.CreateFood).Methods("POST")
+	authRequired.HandleFunc("/foods/{id:[0-9]+}", foodHandler.GetFoodByID).Methods("GET")
+	authRequired.HandleFunc("/foods/{id:[0-9]+}", foodHandler.UpdateFood).Methods("PUT")
+	authRequired.HandleFunc("/foods/{id:[0-9]+}", foodHandler.DeleteFood).Methods("DELETE")
+	authRequired.HandleFunc("/foods/category/{category}", foodHandler.GetFoodsByCategory).Methods("GET")
+	authRequired.HandleFunc("/foods/stats", foodHandler.GetFoodStats).Methods("GET")
+
+	// User routes
+	// Foydalanuvchilar ro'yxati va statistikasi ham himoyalangan.
+	// Keyinchalik, RoleMiddleware yordamida faqat administratorlarga ruxsat berishingiz mumkin.
+	authRequired.HandleFunc("/users", userHandler.GetAllUsers).Methods("GET")
+	authRequired.HandleFunc("/users/stats", userHandler.GetUserStats).Methods("GET")
+
+	// Basket Order Routes
+	// Endi `telegramID` URLdan emas, JWT tokendan olinadi.
+	authRequired.HandleFunc("/basket-order", basketOrderHandler.AddToBasket).Methods("POST")
+	authRequired.HandleFunc("/basket-order", basketOrderHandler.GetBasketOrders).Methods("GET")
+	authRequired.HandleFunc("/basket-order/{foodID:[0-9]+}", basketOrderHandler.RemoveFromBasket).Methods("DELETE")
+	authRequired.HandleFunc("/basket-order", basketOrderHandler.ClearBasket).Methods("DELETE")
+
+	// Order Routes
+	// Buyurtmalar yaratish va ko'rish uchun ham `telegramID` tokendan olinadi.
+	authRequired.HandleFunc("/orders", orderHandler.CreateOrder).Methods("POST")
+	authRequired.HandleFunc("/orders", orderHandler.GetUserOrders).Methods("GET")
+	authRequired.HandleFunc("/orders/{orderID:[0-9]+}", orderHandler.GetOrderDetails).Methods("GET")
+	authRequired.HandleFunc("/orders/{orderID:[0-9]+}/status", orderHandler.UpdateOrderStatus).Methods("PUT") // Admin roli bilan himoyalash kerak
+	authRequired.HandleFunc("/orders/stats", orderHandler.GetOrderStats).Methods("GET")                       // Admin roli bilan himoyalash kerak
+
+	// Admin-only routes
+	// Bu marshrutlar AuthMiddleware orqali himoyalangan. Rol bo'yicha cheklovlarni qo'shishni unutmang.
+	authRequired.HandleFunc("/admin/orders/{orderID:[0-9]+}", orderHandler.DeleteOrderAdmin).Methods("DELETE")
+
+	// --- CORS middleware ---
+	// Bu barcha so'rovlar uchun CORS sozlamalarini o'rnatadi.
 	corsHandler := gorillaHandlers.CORS(
-		gorillaHandlers.AllowedOrigins([]string{"*"}),
+		gorillaHandlers.AllowedOrigins([]string{"*"}), // Diqqat: Productionda faqat kerakli originlarni ko'rsating!
 		gorillaHandlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 		gorillaHandlers.AllowedHeaders([]string{"X-Requested-With", "Content-Type", "Authorization"}),
 	)(r)

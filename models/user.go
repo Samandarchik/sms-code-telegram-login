@@ -13,15 +13,18 @@ type User struct {
 	CreatedAt    time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
 }
+
+// --- Yangilangan LoginRequest ---
 type LoginRequest struct {
-	TelegramID int64  `json:"telegram_id"` // Foydalanuvchi Telegram ID
-	Username   string `json:"username"`    // Telegram username (ixtiyoriy, tekshirish uchun)
+	PhoneNumber string `json:"phone_number"` // Foydalanuvchi telefon raqami
+	Code        string `json:"code"`         // Telegram ID oxirgi 4 raqami
 }
 
 // LoginResponse muvaffaqiyatli kirishdan keyin qaytariladigan javob
 type LoginResponse struct {
 	Token string `json:"token"` // JWT tokeni
 }
+
 type CreateUserRequest struct {
 	UserID    int64  `json:"user_id"` // Telegram ID
 	Username  string `json:"username"`
