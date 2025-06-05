@@ -18,7 +18,7 @@ import (
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 )
 
 // Bazani yaratish funksiyasi
@@ -39,20 +39,20 @@ func createDatabaseIfNotExists(cfg *config.Config) {
 	_, err = db.Exec(fmt.Sprintf("CREATE DATABASE %s", cfg.DatabaseName))
 	if err != nil {
 		// Agar xato "already exists" bo'lsa e'tiborsiz qoldiramiz
-		if !isDatabaseExistsError(err, cfg.DatabaseName) {
-			log.Fatalf("Bazani yaratishda xatolik: %v", err)
-		} else {
+		if pgErr, ok := err.(*pq.Error); ok && pgErr.Code == "42P04" { // Xato kodini tekshirish
 			log.Printf("Baza %s allaqachon mavjud", cfg.DatabaseName)
+		} else {
+			log.Fatalf("Bazani yaratishda xatolik: %v", err)
 		}
 	} else {
 		log.Printf("Baza %s muvaffaqiyatli yaratildi", cfg.DatabaseName)
 	}
 }
 
-func isDatabaseExistsError(err error, dbName string) bool {
-	// PostgreSQL bazasi allaqachon mavjudligi xatosini tekshiradi
-	return err != nil && (err.Error() == fmt.Sprintf("pq: database \"%s\" already exists", dbName))
-}
+// isDatabaseExistsError funksiyasi endi kerak emas, uni o'chirishingiz mumkin.
+// func isDatabaseExistsError(err error, dbName string) bool {
+// 	return err != nil && (err.Error() == fmt.Sprintf("pq: database \"%s\" already exists", dbName))
+// }
 
 func main() {
 	cfg := config.LoadConfig()
